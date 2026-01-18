@@ -1,0 +1,54 @@
+blueprint:
+  name: 문 열림 감지 센서 방등 자동화
+  description: Contact(door) sensor가 열리면 대상 조명/스위치를 켜고, 닫히면 끕니다. 재사용용.
+  domain: automation
+  input:
+    door_sensor:
+      name: 문 열림 센서 (binary_sensor)
+      selector:
+        entity:
+          domain: binary_sensor
+    target_entity:
+      name: 제어할 조명/스위치 (light 또는 switch)
+      selector:
+        entity:
+          domain:
+            - light
+            - switch
+    delay_off:
+      name: 닫힘 후 끄기 지연(선택)
+      description: 문이 닫히자마자 꺼지지 않게 지연을 줄 수 있어요.
+      default: 0
+      selector:
+        number:
+          min: 0
+          max: 600
+          unit_of_measurement: seconds
+          mode: slider
+
+mode: restart
+
+trigger:
+  - platform: state
+    entity_id: !input door_sensor
+
+action:
+  - choose:
+      - conditions:
+          - condition: state
+            entity_id: !input door_sensor
+            state: "on"   # 일반적으로 on=열림
+        sequence:
+          - service: homeassistant.turn_on
+            target:
+              entity_id: !input target_entity
+      - conditions:
+          - condition: state
+            entity_id: !input door_sensor
+            state: "off"  # 일반적으로 off=닫힘
+        sequence:
+          - delay:
+              seconds: !input delay_off
+          - service: homeassistant.turn_off
+            target:
+              entity_id: !input target_entity
