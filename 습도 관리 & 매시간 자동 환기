@@ -1,10 +1,11 @@
 blueprint:
-  name: 습도 관리 & 매시간 자동 환기
+  name: "습도 관리 & 매시간 자동 환기"
   description: >
-    습도 상한 도달 시 환기를 연속 가동하고(하한 이하가 될 때까지),
-    그 외에는 매시 00/10/20/30/40/50분(기본: 10분 주기)마다 1분 환기합니다.
-    단, 지정한 조명 중 하나라도 켜져 있으면 환기는 즉시 중지하고(대기),
-    조명이 모두 꺼진 뒤 조건이 맞으면 다시 동작합니다.
+    [v1.1 패치]
+    1) 습도 상한(upper) 도달 시 연속 가동(하한 lower 이하까지)
+    2) 상한 미만 상태에서는 매시 00/10/20/30/40/50분(기본 10분 슬롯)마다 1분 환기
+    3) 지정 조명 중 하나라도 ON이면 환기는 즉시 중지/대기, 조명 OFF 후 조건 만족 시 재개
+    4) 정기 환기 트리거는 10분 슬롯(/10)로 동작(매분 트리거로 인한 OFF 취소 문제 방지)
   domain: automation
 
   input:
@@ -13,6 +14,7 @@ blueprint:
       selector:
         entity:
           domain: sensor
+          device_class: humidity
 
     vent_entity:
       name: 환기(팬 또는 스위치)
@@ -24,7 +26,7 @@ blueprint:
 
     blocker_lights:
       name: 환기 대기 조건(조명들)
-      description: "여기서 선택한 조명 중 하나라도 ON이면 환기를 중지/대기합니다."
+      description: "선택한 조명 중 하나라도 ON이면 환기를 중지/대기합니다."
       default: []
       selector:
         entity:
@@ -33,7 +35,7 @@ blueprint:
 
     upper_humidity:
       name: 상한 임계값(%) - 이 값 이상이면 연속 가동 시작
-      default: 65
+      default: 70
       selector:
         number:
           min: 0
@@ -44,7 +46,7 @@ blueprint:
 
     lower_humidity:
       name: 하한 임계값(%) - 이 값 이하가 되면 연속 가동 종료
-      default: 55
+      default: 60
       selector:
         number:
           min: 0
@@ -61,19 +63,20 @@ blueprint:
           domain: input_boolean
 
     periodic_enabled:
-      name: 정기 환기(매 N분마다 1분) 사용
+      name: 정기 환기(10분 슬롯마다 1분) 사용
       default: true
       selector:
         boolean: {}
 
     periodic_minutes_step:
-      name: 정기 환기 주기(분) - 기본 10 (00/10/20/...)
+      name: 정기 환기 슬롯 간격(분) - 10의 배수만
+      description: "10/20/30/60만 권장(트리거는 10분 슬롯에서만 발생하고 내부에서 step을 추가로 필터링)"
       default: 10
       selector:
         number:
-          min: 5
+          min: 10
           max: 60
-          step: 5
+          step: 10
           unit_of_measurement: "min"
           mode: box
 
@@ -143,9 +146,9 @@ trigger:
     to: "off"
     id: light_off
 
-  # 주기 체크(매 분) → 분(mod N)==0 인 시점에만 1분 환기
+  # ✅ 10분 슬롯에서만 트리거(00/10/20/30/40/50)
   - platform: time_pattern
-    minutes: "/1"
+    minutes: "/10"
     seconds: 0
     id: periodic_tick
 
@@ -155,7 +158,7 @@ trigger:
 
 action:
   - choose:
-      # 1) 상한 도달: 연속가동 래치 ON, (조명 OFF일 때) 환기 ON
+      # 1) 상한 도달: 래치 ON, (조명 OFF일 때) 환기 ON
       - conditions:
           - condition: template
             value_template: "{{ trigger.id == 'humidity_high' }}"
@@ -182,7 +185,7 @@ action:
                       message: "상한 도달(h={{ states(humidity_sensor) }}%) → 연속가동 래치 ON, 조명ON={{ blockers_any_on }}"
                       entity_id: !input vent_entity
 
-      # 2) 하한 이하: 연속가동 래치 OFF, 환기 OFF
+      # 2) 하한 이하: 래치 OFF, 환기 OFF
       - conditions:
           - condition: template
             value_template: "{{ trigger.id == 'humidity_low' }}"
@@ -223,12 +226,12 @@ action:
                       message: "조명 ON 감지 → 환기 OFF(대기)"
                       entity_id: !input vent_entity
 
-      # 4) 조명 OFF 또는 HA 시작: 상태 동기화 + (조명 모두 OFF이고 연속가동 필요하면) 환기 ON
+      # 4) 조명 OFF 또는 HA 시작: 상태 동기화 + (조명 OFF & 연속가동 필요하면) 환기 ON
       - conditions:
           - condition: template
             value_template: "{{ trigger.id in ['light_off','ha_start'] }}"
         sequence:
-          # 동기화(재시작/예외 대비): 현재 습도로 래치 보정
+          # 현재 습도로 래치 보정(재시작/예외 대비)
           - choose:
               - conditions:
                   - condition: template
@@ -245,7 +248,7 @@ action:
                     target:
                       entity_id: !input high_latch_helper
 
-          # 조명이 모두 OFF이고, 래치가 ON이면(=연속가동 필요) 환기 ON
+          # 조명이 모두 OFF이고, 래치가 ON이면 환기 ON
           - choose:
               - conditions:
                   - condition: template
@@ -260,7 +263,7 @@ action:
                     target:
                       entity_id: !input vent_entity
 
-      # 5) 주기 환기 tick: (연속가동 아님 + 조명 OFF + 분(mod N)==0) 이면 1분 ON
+      # 5) 정기 환기 tick(10분 슬롯에서만 트리거됨): 연속가동 아님 + 조명 OFF + step 조건 만족 → 1분 ON
       - conditions:
           - condition: template
             value_template: "{{ trigger.id == 'periodic_tick' }}"
@@ -271,14 +274,15 @@ action:
                     value_template: "{{ not periodic_enabled }}"
                 sequence:
                   - stop: "정기 환기 비활성"
+
           - choose:
               - conditions:
                   - condition: template
                     value_template: "{{ blockers_any_on }}"
                 sequence:
-                  - stop: "조명 ON → 정기 환기 대기"
+                  - stop: "조명 ON → 정기 환기 대기(슬롯 스킵)"
 
-          # 혹시 현재 습도가 상한 이상이면(크로스 트리거 누락 대비) 연속가동으로 전환
+          # 혹시 현재 습도가 상한 이상이면 연속가동으로 전환(누락 대비)
           - choose:
               - conditions:
                   - condition: template
@@ -300,6 +304,7 @@ action:
                 sequence:
                   - stop: "연속가동 중 → 정기 환기 무시"
 
+          # step이 20/30/60인 경우를 위한 추가 필터
           - condition: template
             value_template: "{{ (now().minute % (periodic_step | int(10))) == 0 }}"
 
@@ -313,7 +318,7 @@ action:
           - delay:
               seconds: !input periodic_run_seconds
 
-          # 1분 후 OFF: (수동 ON 보호 옵션에 따라) & 그 사이 조명/연속가동 조건이 생기지 않았을 때만
+          # 1분 후 OFF: (수동 ON 보호 옵션) & 그 사이 연속가동/조명ON/상한도달이 아니어야 함
           - choose:
               - conditions:
                   - condition: template
