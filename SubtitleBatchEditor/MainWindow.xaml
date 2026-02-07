@@ -1,0 +1,38 @@
+<Window
+    x:Class="SubtitleBatchEditor.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:SubtitleBatchEditor"
+    xmlns:models="using:SubtitleBatchEditor.Models"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title="자막 일괄 수정">
+
+    <Grid Padding="20" RowDefinitions="Auto,Auto,Auto,*,Auto" RowSpacing="12">
+        <TextBlock Text="폴더 안의 SMI/SRT 파일을 규칙대로 순차 치환합니다." />
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8">
+            <TextBox x:Name="FolderPathTextBox" Width="420" PlaceholderText="폴더를 선택하세요" IsReadOnly="True" />
+            <Button Content="폴더 선택" Click="OnPickFolder" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8">
+            <Button Content="치환 규칙 설정" Click="OnOpenSettings" />
+            <Button Content="수정 실행" Click="OnRunReplace" />
+        </StackPanel>
+
+        <ListView Grid.Row="3" ItemsSource="{x:Bind FileStatuses, Mode=OneWay}">
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="models:FileStatus">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <TextBlock Text="{x:Bind FileName}" Width="420" />
+                        <TextBlock Text="{x:Bind Status}" />
+                    </StackPanel>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+
+        <TextBlock Grid.Row="4" Text="여러 규칙은 위에서 아래 순서대로 적용됩니다." Foreground="Gray" />
+    </Grid>
+</Window>
